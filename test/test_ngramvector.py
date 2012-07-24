@@ -15,27 +15,24 @@ class Test(unittest.TestCase):
 
 
     def setUp(self):
-        pass
+        self.ngv = NgramVector("sample.csv")
 
 
     def tearDown(self):
         pass
 
 
-    def test_vectorize(self):
-        pass
+    def test_convert_to_ngrams_doc(self):
+        record = {
+            'contributor_name': "Smith, John",
+            'other': 'Test'
+        }
+        doc = self.ngv.convert_to_ngrams_doc(record, 3, ['contributor_name','other'])
+        self.assertEqual(doc,["Smith, John",'Test','smith', 'john','smith_john'])
     
-    def test_get_ngrams_name(self):
-        phrase = "John Smith"
-        
-        result = get_ngrams(phrase,1)       
-        self.assertEqual(result,["John","Smith"])
-
-        result = get_ngrams(phrase,2)        
-        self.assertEqual(result,["John_Smith"])
-
-        result = get_ngrams(phrase,3)        
-        self.assertEqual(result,[])
+    def test_clean_token_list(self):
+        tokens = self.ngv.clean_token_list(["Smith",",","John"])
+        self.assertEqual(tokens,['smith', 'john'])
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

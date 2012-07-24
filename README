@@ -1,3 +1,8 @@
-Python Utility for analyzing campaign finance data from Sunlight Labs
+Python Utility for processing campaign finance data from Sunlight Labs
+
+You need the nltk library for this. I'm working on packaging this properly
+into a distutils package.
+
+
 
 
