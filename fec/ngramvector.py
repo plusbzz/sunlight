@@ -124,16 +124,23 @@ class NgramVector(object):
                 idf = log(self.doc_count/df)
                 tf_dict[term] = term_freq*idf                
     
+
+        
     def generate_ismion_sparse_file(self,out_file_name=None):
         # TODO print header
+        # header meta:1
+        print "header",
+        print "meta:1",
+        print "sparse:double:" + str(len(self.doc_frequencies)) #terms
+        
         for doc_id,tf_dict in self.term_frequencies:
             new_tf_dict = {}
             for term,term_freq in tf_dict.iteritems():
                 new_tf_dict[self.doc_frequencies[term]['term_id']] = term_freq
             
             print doc_id,
-            for term in sorted(new_tf_dict.keys()):
-                print term, new_tf_dict[term],
+            for term_id in sorted(new_tf_dict.keys()):
+                print str(term_id) + ":" + str(new_tf_dict[term_id]),
             print
     
     
@@ -143,5 +150,5 @@ if __name__ == "__main__":
     
     from pprint import PrettyPrinter
     pp = PrettyPrinter()
-    pp.pprint(ngv.term_frequencies)
+    #pp.pprint(ngv.term_frequencies)
     ngv.generate_ismion_sparse_file()
