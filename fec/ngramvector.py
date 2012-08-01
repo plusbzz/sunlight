@@ -7,107 +7,81 @@ from __future__ import division
 
 from nltk.tokenize import wordpunct_tokenize
 from nltk.util import ngrams
-from csv import DictReader
+from csv import DictReader,writer
 from math import log
 import sys
    
 class NgramVector(object):
     
     def __init__(self, input_file_name):
-        self.punctuation = ',.:;'
-        self.fields_to_keep = [
-            'organization_name','contributor_name','contributor_address'
+        self.punctuation = ' ,.:;#-@1234567890'
+        
+        # Which fields to keep? Only the ones that seem pretty clean
+        # First/Last names, city/state/zip
+        self.fields = [
+            'contributor_name','contributor_address','contributor_city'
         ]
-        self.fields_to_ngram = [
-            'organization_name','contributor_name','contributor_address'
-        ]
-        self.doc_collection = []
+        
         self.doc_count = 0
         
         self.doc_frequencies  = {}    # number of docs for each term
         self.term_frequencies = []    # term counts for each document
-        self.term_count = 0
+        self.sorted_terms = []
         
         self.convert_to_doc_collection(input_file_name)
         self.tf_idf_normalize()
     
-    def clean_token_list(self,tokens):
-        '''
-        Remove punctuation marks from token list and lowercase them
-        '''
-        return map(lambda y: y.lower(), filter(lambda x: x not in self.punctuation,tokens))
-           
+    def clean_term(self,term):
+        return term.lower().translate(None,self.punctuation)
+        
     
-    def convert_to_ngrams_doc(self,record, max_n, fieldnames):
+    def convert_to_ngrams_doc(self,record, max_n):
         """
-        For a single record, return a vector containing n-grams for all n = 1..max_n
-        Each n-gram has its components separated by '_'
-        This function effectively converts each record to a document, where the words
-        of the document are n-grams.
+        For each record, convert the specified field to a list of character
+        n-grams (bigrams and trigrams). Each field-and-ngram combination
+        becomes a feature in our vector. This, the field 'contributor_name'
+        generates ~(26^2+26^3) features.
         """
-        doc = []
         doc_id = record['id']
-        for field in fieldnames:
-            if field in self.fields_to_keep:
-                value = record[field]
-                if len(value) > 0:
-                    doc.append(record[field].lower())
-    
-        # For select fields, get n-gram lists from 1 to max_n. 
-        for phrase_field in self.fields_to_ngram:
-            try:
-                tokens = self.clean_token_list(wordpunct_tokenize(record[phrase_field]))
-            except KeyError:
-                continue
-            
-            for n in xrange(1,max_n+1):
-                doc.extend(["_".join(t) for t in ngrams(tokens,n)])
-        
-        return (doc_id,doc)
-    
-    def get_term_freq_dict(self,doc):
         tf_dict = {}
-        for term in doc[1:]:
-            if term in tf_dict:
-                tf_dict[term] += 1
-            else:
-                tf_dict[term] = 1
-        return tf_dict
-    
-    def update_tf_idf_info(self,doc,doc_id):
-        '''
-        Convert list of terms to a dictionary with counts
-        Append this dictionary to term frequency list
+        for field in self.fields:
+            field_value = self.clean_term(record[field])
+            ng_list = [t for n in xrange(2,4) for t in ngrams(field_value,n)]
+            for ng in ng_list:
+                field_name = field + ":" + str(ng)
+                if field_name in tf_dict:
+                    tf_dict[field_name] += 1
+                else:
+                    tf_dict[field_name] = 1
+
+        self.term_frequencies.append((doc_id,tf_dict))
         
-        For each term, add to set of documents in which it occurs
-        '''
-        self.term_frequencies.append((doc_id,self.get_term_freq_dict(doc)))
-        
-        # For each term, update #docs in which it occurs 
-        for term in doc:
+        # Modify document frequencies
+        for term in tf_dict.keys():
             if term in self.doc_frequencies:
                 self.doc_frequencies[term]['doc_freq'] += 1
-            else:                                   # a new term
-                self.term_count += 1                # Give this term a unique number
+            else:                                   
                 self.doc_frequencies[term] = {      # and a doc frequency of 1
-                    'term_id'   : self.term_count,
                     'doc_freq'  : 1
-                }
-                
+                }        
                 
     def convert_to_doc_collection(self,input_file_name):
         '''
         Read a CSV input file and convert each record to a text collection (document)
         of ngrams
         '''
-
         with open(input_file_name,'rb') as csv_input:
             reader = DictReader(csv_input)          # defaults are fine here
             for record in reader:
-                doc_id,doc = self.convert_to_ngrams_doc(record, 3, reader.fieldnames)
+                self.convert_to_ngrams_doc(record, 3)
                 self.doc_count += 1
-                self.update_tf_idf_info(doc,doc_id)
-                self.doc_collection.append(doc)
+        
+        # Assign term ids such that the ids are assigned in sorted order of terms    
+        term_count = 1
+        for term in sorted(self.doc_frequencies.keys()):
+            self.doc_frequencies[term]["term_id"] = term_count;
+            term_count += 1
+            self.sorted_terms.append(term)
                 
     def tf_idf_normalize(self):
         """
@@ -116,7 +90,7 @@ class NgramVector(object):
         term_list = self.doc_frequencies.keys()
         
         #for each document
-        for doc_id,tf_dict in self.term_frequencies:
+        for doc_id,tf_dict in self.term_frequencies: # This can get really slow!
             # get each term count
             for term,term_freq in tf_dict.iteritems():
                 # multiply tf by idf
@@ -124,25 +98,34 @@ class NgramVector(object):
                 idf = log(self.doc_count/df)
                 tf_dict[term] = term_freq*idf                
     
-
-        
-    def generate_ismion_sparse_file(self,out_file_name=None):
-        # TODO print header
-        # header meta:1
-        print "header",
-        print "meta:1",
-        print "sparse:double:" + str(len(self.doc_frequencies)) #terms
-        
-        for doc_id,tf_dict in self.term_frequencies:
-            new_tf_dict = {}
-            for term,term_freq in tf_dict.iteritems():
-                new_tf_dict[self.doc_frequencies[term]['term_id']] = term_freq
             
-            print doc_id,
-            for term_id in sorted(new_tf_dict.keys()):
-                print str(term_id) + ":" + str(new_tf_dict[term_id]),
-            print
-    
+    # Print mapping in a separate file    
+    def generate_ismion_sparse_file(self,out_file_name = "ismion_sparse_matrix.txt",
+                                         map_file_name = "ismion_term_mapping.txt"):        
+        with open(out_file_name,"wb") as csv_output, open(map_file_name,"wb") as map_file:
+            csv_writer = writer(csv_output,delimiter=' ')
+            row = []
+            row.append("header")
+            row.append("meta:1")
+            row.append("sparse:double:" + str(len(self.doc_frequencies))) #terms
+            csv_writer.writerow(row)
+        
+            for doc_id,tf_dict in self.term_frequencies:
+                row = []
+                new_tf_dict = {}
+                term_mapping = {}
+                for term,term_freq in tf_dict.iteritems():
+                    term_id = self.doc_frequencies[term]['term_id']
+                    new_tf_dict[term_id] = term_freq
+                    term_mapping[term_id] = term
+                
+                row.append(doc_id)
+                for term_id in sorted(new_tf_dict.keys()):
+                    row.append(str(term_id) + ":" + ("%.3f" % new_tf_dict[term_id]))
+                csv_writer.writerow(row)
+        
+            for idx,term in enumerate(self.sorted_terms):
+                map_file.write(str(idx+1) + "," + term + "\n")
     
 if __name__ == "__main__":
     input_file_name = sys.argv[1]
@@ -152,3 +135,5 @@ if __name__ == "__main__":
     pp = PrettyPrinter()
     #pp.pprint(ngv.term_frequencies)
     ngv.generate_ismion_sparse_file()
+    #pp.pprint(ngv.doc_frequencies)
+    #print len(ngv.doc_frequencies)
